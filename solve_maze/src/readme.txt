@@ -25,7 +25,9 @@ oluşturulan executable ı çalıştırma  ve o sırada gözlemleme
 
 rosrun solve_maze my_solver
     
-gz physics -u 5000
+
+    simülasyon zamanını 10 katına çıkarmak içni terminale girilir 
+gz physics -u 10000
 
 
 gazebo kapama 
