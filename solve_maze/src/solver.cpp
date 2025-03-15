@@ -11,10 +11,9 @@ public:
         scan_sub = nh.subscribe("/scan", 1, &Solver::scanCallback, this);
         odom_sub = nh.subscribe("/odom", 1, &Solver::odomCallback, this);
         cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
-
-        nh.param<double>("wall_distance", d, 0.4);  // İdeal duvar mesafesi
-        nh.param<double>("parallel_band_width", r, 0.1);
-        nh.param<double>("straight_vel", straight_vel, 0.2);
+        nh.param<double>("wall_distance", d, 0.5);
+        nh.param<double>("parallel_band_width", r, 0.05);
+        nh.param<double>("straight_vel", straight_vel, 0.15);
         nh.param<double>("rotate_vel", rotate_vel, 0.3);
         nh.param<double>("corner_threshold", corner_threshold, 0.35);
         
@@ -86,12 +85,12 @@ public:
     }
     void followWall() {
         double front_distance = getDistanceAtAngle(0.0);
-        double front_side_distance = getDistanceAtAngle(side * M_PI / 4.0);  // ön-yan açı (45 derece)
-        double side_distance = getDistanceAtAngle(side * M_PI / 2.0);
+        double front_side_distance = getDistanceAtAngle(side * M_PI / 4.0);  // 45 derece yan-ön
+        double side_distance = getDistanceAtAngle(side * M_PI / 2.0);        // 90 derece tam yan
     
         ROS_INFO("Front: %.2f, Front-Side: %.2f, Side: %.2f", front_distance, front_side_distance, side_distance);
     
-        // Eğer öndeki mesafe kritik eşikten küçükse, 90 derece içe dön
+        // 90 derece iç köşe kontrolü
         if (front_distance < corner_threshold) {
             ROS_INFO("90-degree corner detected, turning inward");
             turnRobot(-side * M_PI / 2.0);
@@ -99,27 +98,35 @@ public:
             return;
         }
     
-        // Yan taraftaki duvar aniden uzaklaştıysa (270 derece köşe)
-        if (side_distance > d + 0.5) {
+        // 270 derece dış köşe kontrolü (yan mesafede ani büyüme)
+        if (side_distance > d + 0.6) {
             ROS_INFO("270-degree corner detected, turning outward");
             turnRobot(side * M_PI / 2.0);
             ros::Duration(1.0).sleep();
             return;
         }
     
-        // Yan mesafe kontrolü (d mesafesini koruma)
-        double error = side_distance - d;
+        // Robotun duvara açısını hesapla (0 olması paralel olduğunu gösterir)
+        double alpha = atan2(front_side_distance * cos(M_PI/4) - side_distance, front_side_distance * sin(M_PI/4));
     
-        // PID kontrolü yerine basit bir orantısal (P) kontrol yeterli olacaktır.
-        double angular_z = Kp * error;
+        // Robotun duvara göre mesafesi gerçek anlamda hesaplanır
+        double actual_side_distance = side_distance * cos(alpha);
     
-        // Robotun aşırı salınımını önlemek için angular_z sınırlandırılır.
+        // Hata: hem açı (alpha), hem de mesafe (actual_side_distance - d) olarak ele alınır
+        double error_distance = actual_side_distance - d;
+        double error_angle = alpha;
+    
+        // Orantısal kontrolcü (ikili hata)
+        double angular_z = Kp_distance * error_distance + Kp_angle * error_angle;
+    
+        // Açısal hızı sınırla
         angular_z = std::max(std::min(angular_z, rotate_vel), -rotate_vel);
     
         cmd_vel_msg.linear.x = straight_vel;
         cmd_vel_msg.angular.z = angular_z;
         cmd_vel_pub.publish(cmd_vel_msg);
     }
+    
     
 
     double getDistanceAtAngle(double angle) {
@@ -182,8 +189,9 @@ private:
     bool wall_found;
     int side;
     double odom_x, odom_y, odom_yaw;
-    const double Kp = 1.0;
-};
+    const double Kp_distance = 1.0;  // Mesafe hata katsayısı
+    const double Kp_angle = 1.5;     // Açı hata katsay
+    };
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "wall_following");
