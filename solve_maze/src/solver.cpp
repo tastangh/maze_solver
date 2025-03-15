@@ -12,11 +12,12 @@ public:
         odom_sub = nh.subscribe("/odom", 1, &Solver::odomCallback, this);
         cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
 
-        nh.param<double>("wall_distance", d, 1.0);
-        nh.param<double>("parallel_band_width", r, 0.2);
+        nh.param<double>("wall_distance", d, 0.4); // duvara mesafe daha küçük, labirent koridorları için ideal
+        nh.param<double>("parallel_band_width", r, 0.1);
         nh.param<double>("straight_vel", straight_vel, 0.2);
-        nh.param<double>("rotate_vel", rotate_vel, 0.2);
-        nh.param<double>("corner_threshold", corner_threshold, 0.5);
+        nh.param<double>("rotate_vel", rotate_vel, 0.4);
+        nh.param<double>("corner_threshold", corner_threshold, 0.35);
+        
         nh.param<double>("odom_goal_x", odom_goal_x, 2.0);
         nh.param<double>("odom_goal_y", odom_goal_y, 2.0);
 
@@ -83,31 +84,46 @@ public:
             stopRobot();
         }
     }
-
     void followWall() {
         double front_distance = getDistanceAtAngle(0.0);
         double side_distance = getDistanceAtAngle(side * M_PI / 2.0);
-
+    
+        ROS_INFO("Front: %.2f, Side: %.2f", front_distance, side_distance);
+    
         if (front_distance < corner_threshold) {
-            ROS_INFO("90-degree corner detected, turning to follow wall");
+            ROS_INFO("90-degree corner detected, turning inward");
             turnRobot(-side * M_PI / 2.0);
+            ros::Duration(0.5).sleep();
             return;
         }
-
-        if (side_distance > d + r) {
-            ROS_INFO("270-degree corner detected, turning to approach wall");
+    
+        if (side_distance > d + r*2) {
+            ROS_INFO("270-degree corner detected, turning outward");
             turnRobot(side * M_PI / 2.0);
+            ros::Duration(0.5).sleep();
             return;
         }
-
+    
+        // --- HEDEFE YÖNELİMLİ İYİLEŞTİRME ---
+        double goal_direction = atan2(-odom_y, -odom_x); // (0,0)'a göre açı
+        double angle_diff = atan2(sin(goal_direction - odom_yaw), cos(goal_direction - odom_yaw));
+    
+        // hedefe yönelme katkısını küçük tutuyoruz, duvar takibini bozmamak için
+        double angular_z_goal = 0.2 * angle_diff;
+    
         double error = side_distance - d;
-        double angular_z = Kp * error;
+        double angular_z_wall = Kp * error;
+    
+        // toplam açısal hız kontrolü
+        double angular_z = angular_z_wall + angular_z_goal;
+    
         angular_z = std::max(std::min(angular_z, rotate_vel), -rotate_vel);
-
+    
         cmd_vel_msg.linear.x = straight_vel;
         cmd_vel_msg.angular.z = angular_z;
         cmd_vel_pub.publish(cmd_vel_msg);
     }
+    
 
     double getDistanceAtAngle(double angle) {
         int index = angleToIndex(angle);
@@ -147,8 +163,9 @@ public:
     }
 
     bool goalReached() {
-        return fabs(odom_x) <= odom_goal_x && fabs(odom_y) <= odom_goal_y;
+        return fabs(odom_x) <= 1.0 && fabs(odom_y) <= 1.0;
     }
+    
 
     void stopRobot() {
         cmd_vel_msg.linear.x = 0.0;
