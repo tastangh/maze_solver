@@ -3,7 +3,7 @@
 #include "geometry_msgs/Twist.h"
 #include "nav_msgs/Odometry.h"
 #include <cmath>
-#include <tf/transform_datatypes.h> 
+#include <tf/transform_datatypes.h>
 
 class Solver {
 public:
@@ -12,7 +12,7 @@ public:
         odom_sub = nh.subscribe("/odom", 1, &Solver::odomCallback, this);
         cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
 
-        nh.param<double>("wall_distance", d, 0.75);
+        nh.param<double>("wall_distance", d, 0.5);
         nh.param<double>("parallel_band_width", r, 0.1);
         nh.param<double>("straight_vel", straight_vel, 0.2);
         nh.param<double>("rotate_vel", rotate_vel, 0.3);
@@ -27,6 +27,10 @@ public:
         odom_x = 0.0;
         odom_y = 0.0;
         odom_yaw = 0.0;
+
+        // 🚀 İlk hareket: Geri giderek duvardan uzaklaş
+        moveBackward(0.5);  // 0.5 saniye geri git
+        ros::Duration(0.5).sleep();
     }
 
     void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg_p) {
@@ -152,6 +156,15 @@ public:
             error = atan2(sin(error), cos(error));
         }
 
+        stopRobot();
+    }
+
+    void moveBackward(double duration) {
+        ROS_INFO("⬅️ Geri hareket: %f saniye", duration);
+        cmd_vel_msg.linear.x = -0.1;
+        cmd_vel_msg.angular.z = 0.0;
+        cmd_vel_pub.publish(cmd_vel_msg);
+        ros::Duration(duration).sleep();
         stopRobot();
     }
 
