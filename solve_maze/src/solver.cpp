@@ -7,22 +7,21 @@
 
 class Solver {
 public:
-    Solver() : nh("~") {
+    Solver() : nh("~"), moved_backwards(false), wall_found(false) {
         scan_sub = nh.subscribe("/scan", 1, &Solver::scanCallback, this);
         odom_sub = nh.subscribe("/odom", 1, &Solver::odomCallback, this);
         cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
+        
         nh.param<double>("wall_distance", d, 0.5);
         nh.param<double>("parallel_band_width", r, 0.05);
-        nh.param<double>("straight_vel", straight_vel, 0.15);
-        nh.param<double>("rotate_vel", rotate_vel, 0.3);
+        nh.param<double>("straight_vel", straight_vel, 0.3);
+        nh.param<double>("rotate_vel", rotate_vel, 0.5);
         nh.param<double>("corner_threshold", corner_threshold, 0.35);
         
         nh.param<double>("odom_goal_x", odom_goal_x, 2.0);
         nh.param<double>("odom_goal_y", odom_goal_y, 2.0);
 
-        wall_found = false;
-        side = 1; // 1 sağ duvar, -1 sol duvar takibi
-
+        side = 1; // 1: Sağ duvar, -1: Sol duvar takibi
         odom_x = 0.0;
         odom_y = 0.0;
         odom_yaw = 0.0;
@@ -30,6 +29,16 @@ public:
 
     void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg_p) {
         scan_msg = *scan_msg_p;
+
+        double front_distance = getDistanceAtAngle(0.0);
+        double min_safe_distance = 0.4; 
+
+        if (!moved_backwards && front_distance < min_safe_distance) {
+            ROS_WARN("Too close to the wall! Moving backward...");
+            moveBackward(0.2, 1.0);
+            ros::Duration(1.0).sleep();
+            moved_backwards = true;
+        }
 
         if (!wall_found) {
             findNearestWall();
@@ -83,14 +92,14 @@ public:
             stopRobot();
         }
     }
+
     void followWall() {
         double front_distance = getDistanceAtAngle(0.0);
-        double front_side_distance = getDistanceAtAngle(side * M_PI / 4.0);  // 45 derece yan-ön
-        double side_distance = getDistanceAtAngle(side * M_PI / 2.0);        // 90 derece tam yan
+        double front_side_distance = getDistanceAtAngle(side * M_PI / 4.0); 
+        double side_distance = getDistanceAtAngle(side * M_PI / 2.0); 
     
         ROS_INFO("Front: %.2f, Front-Side: %.2f, Side: %.2f", front_distance, front_side_distance, side_distance);
     
-        // 90 derece iç köşe kontrolü
         if (front_distance < corner_threshold) {
             ROS_INFO("90-degree corner detected, turning inward");
             turnRobot(-side * M_PI / 2.0);
@@ -98,7 +107,6 @@ public:
             return;
         }
     
-        // 270 derece dış köşe kontrolü (yan mesafede ani büyüme)
         if (side_distance > d + 0.6) {
             ROS_INFO("270-degree corner detected, turning outward");
             turnRobot(side * M_PI / 2.0);
@@ -106,28 +114,19 @@ public:
             return;
         }
     
-        // Robotun duvara açısını hesapla (0 olması paralel olduğunu gösterir)
         double alpha = atan2(front_side_distance * cos(M_PI/4) - side_distance, front_side_distance * sin(M_PI/4));
-    
-        // Robotun duvara göre mesafesi gerçek anlamda hesaplanır
         double actual_side_distance = side_distance * cos(alpha);
     
-        // Hata: hem açı (alpha), hem de mesafe (actual_side_distance - d) olarak ele alınır
         double error_distance = actual_side_distance - d;
         double error_angle = alpha;
     
-        // Orantısal kontrolcü (ikili hata)
         double angular_z = Kp_distance * error_distance + Kp_angle * error_angle;
-    
-        // Açısal hızı sınırla
         angular_z = std::max(std::min(angular_z, rotate_vel), -rotate_vel);
     
         cmd_vel_msg.linear.x = straight_vel;
         cmd_vel_msg.angular.z = angular_z;
         cmd_vel_pub.publish(cmd_vel_msg);
     }
-    
-    
 
     double getDistanceAtAngle(double angle) {
         int index = angleToIndex(angle);
@@ -169,7 +168,21 @@ public:
     bool goalReached() {
         return fabs(odom_x) <= 1.0 && fabs(odom_y) <= 1.0;
     }
+
+    void moveBackward(double speed, double duration) {
+        ros::Time start_time = ros::Time::now();
+        ros::Duration timeout(duration);
     
+        cmd_vel_msg.linear.x = -speed;
+        cmd_vel_msg.angular.z = - speed;
+
+        ros::Rate rate(10);
+        while (ros::Time::now() - start_time < timeout) {
+            cmd_vel_pub.publish(cmd_vel_msg);
+            rate.sleep();
+        }
+        stopRobot();
+    }
 
     void stopRobot() {
         cmd_vel_msg.linear.x = 0.0;
@@ -179,19 +192,18 @@ public:
 
 private:
     ros::NodeHandle nh;
-    ros::Subscriber scan_sub;
-    ros::Subscriber odom_sub;
+    ros::Subscriber scan_sub, odom_sub;
     ros::Publisher cmd_vel_pub;
     geometry_msgs::Twist cmd_vel_msg;
     sensor_msgs::LaserScan scan_msg;
 
     double d, r, straight_vel, rotate_vel, corner_threshold, odom_goal_x, odom_goal_y;
-    bool wall_found;
+    bool moved_backwards, wall_found;
     int side;
     double odom_x, odom_y, odom_yaw;
-    const double Kp_distance = 1.0;  // Mesafe hata katsayısı
-    const double Kp_angle = 1.5;     // Açı hata katsay
-    };
+    const double Kp_distance = 1;
+    const double Kp_angle = 1.5;
+};
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "wall_following");
