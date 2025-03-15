@@ -61,6 +61,12 @@ rosrun solve_maze my_solver
 
 This command executes **solver.cpp**, allowing TurtleBot3 to start solving the maze.
 
+## Adjusting Simulation Speed
+To speed up the simulation by **10 times**, run the following command in the terminal:
+```bash
+gz physics -u 10000
+```
+
 ## Camera Adjustment
 In Gazebo, adjust the camera **relative to TurtleBot3** for better observation of the simulation.
 
