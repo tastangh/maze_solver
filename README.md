@@ -54,6 +54,11 @@ catkin_make
 source ~/.bashrc
 ```
 
+### . Launch the Maze Simulation
+```bash
+roslaunch micromouse_maze micromouse_maze4.launch
+```
+
 ### Run the Solver
 ```bash
 rosrun solve_maze my_solver

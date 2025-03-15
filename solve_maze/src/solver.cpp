@@ -20,7 +20,7 @@ public:
         nh.param<double>("odom_goal_x", odom_goal_x, 2.0);
         nh.param<double>("odom_goal_y", odom_goal_y, 2.0);
 
-        side = 1; // 1: Sağ duvar, -1: Sol duvar takibi
+        side = 1; 
         odom_x = 0.0;
         odom_y = 0.0;
         odom_yaw = 0.0;
@@ -34,7 +34,7 @@ public:
 
         if (!moved_backwards && front_distance < min_safe_distance) {
             ROS_WARN("Too close to the wall! Moving backward...");
-            moveBackward(0.2, 0.5);
+            moveBackward(0.2, 2);
             moved_backwards = true;
         }
 
@@ -126,7 +126,7 @@ public:
             ROS_INFO("Too far from the wall, adjusting...");
             error_distance = actual_side_distance - (d + r);
         } else {
-            error_distance = 0.0; // Bant içindeyiz, düz ilerleyebiliriz.
+            error_distance = 0.0; 
         }
         
         double error_angle = alpha;
