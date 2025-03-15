@@ -18,8 +18,8 @@ source ~/.bashrc
 
 
 Labirent ortamını simülasyonunu başlatma 
-roslaunch micromouse_maze micromouse_maze4.launch use_sim_time:=false
-    
+roslaunch micromouse_maze micromouse_maze4.launch 
+
 kamerayı robota göre ayarlıyoruz gazeboda 
 oluşturulan executable ı çalıştırma  ve o sırada gözlemleme 
 

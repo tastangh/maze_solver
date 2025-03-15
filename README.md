@@ -29,7 +29,7 @@ source ~/.bashrc
 
 ### 3. Launch the Maze Simulation
 ```bash
-roslaunch micromouse_maze micromouse_maze4.launch use_sim_time:=false
+roslaunch micromouse_maze micromouse_maze4.launch
 ```
 
 ## Solver.cpp - Maze Solving Algorithm
