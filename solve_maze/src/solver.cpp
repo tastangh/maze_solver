@@ -13,10 +13,9 @@ public:
         cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
         
         nh.param<double>("wall_distance", d, 0.5);
-        nh.param<double>("parallel_band_width", r, 0.05);
+        nh.param<double>("parallel_band_width", r, 0.1);
         nh.param<double>("straight_vel", straight_vel, 0.3);
         nh.param<double>("rotate_vel", rotate_vel, 0.5);
-        nh.param<double>("corner_threshold", corner_threshold, 0.35);
         
         nh.param<double>("odom_goal_x", odom_goal_x, 2.0);
         nh.param<double>("odom_goal_y", odom_goal_y, 2.0);
@@ -35,8 +34,7 @@ public:
 
         if (!moved_backwards && front_distance < min_safe_distance) {
             ROS_WARN("Too close to the wall! Moving backward...");
-            moveBackward(0.2, 1.0);
-            ros::Duration(1.0).sleep();
+            moveBackward(0.2, 0.5);
             moved_backwards = true;
         }
 
@@ -100,24 +98,37 @@ public:
     
         ROS_INFO("Front: %.2f, Front-Side: %.2f, Side: %.2f", front_distance, front_side_distance, side_distance);
     
-        if (front_distance < corner_threshold) {
+        if (front_distance < d && front_side_distance < d - r) { 
             ROS_INFO("90-degree corner detected, turning inward");
             turnRobot(-side * M_PI / 2.0);
             ros::Duration(1.0).sleep();
             return;
         }
-    
-        if (side_distance > d + 0.6) {
+        
+        
+        if (side_distance > d + 1.5*r && front_side_distance > d + r) { 
             ROS_INFO("270-degree corner detected, turning outward");
             turnRobot(side * M_PI / 2.0);
             ros::Duration(1.0).sleep();
             return;
         }
+        
+        
     
         double alpha = atan2(front_side_distance * cos(M_PI/4) - side_distance, front_side_distance * sin(M_PI/4));
         double actual_side_distance = side_distance * cos(alpha);
     
-        double error_distance = actual_side_distance - d;
+        double error_distance ;
+        if (actual_side_distance < d - r) {
+            ROS_INFO("Too close to the wall, adjusting...");
+            error_distance = actual_side_distance - (d - r);
+        } else if (actual_side_distance > d + r) {
+            ROS_INFO("Too far from the wall, adjusting...");
+            error_distance = actual_side_distance - (d + r);
+        } else {
+            error_distance = 0.0; // Bant içindeyiz, düz ilerleyebiliriz.
+        }
+        
         double error_angle = alpha;
     
         double angular_z = Kp_distance * error_distance + Kp_angle * error_angle;

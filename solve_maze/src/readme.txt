@@ -25,7 +25,7 @@ oluşturulan executable ı çalıştırma  ve o sırada gözlemleme
 
 rosrun solve_maze my_solver
     
-gz physics -u 2000
+gz physics -u 5000
 
 
 gazebo kapama 
