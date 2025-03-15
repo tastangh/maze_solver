@@ -15,18 +15,17 @@ public:
         nh.param<double>("wall_distance", d, 1.0);
         nh.param<double>("parallel_band_width", r, 0.2);
         nh.param<double>("straight_vel", straight_vel, 0.2);
-        nh.param<double>("rotate_vel", rotate_vel, 0.1745);
+        nh.param<double>("rotate_vel", rotate_vel, 0.2);
         nh.param<double>("corner_threshold", corner_threshold, 0.5);
         nh.param<double>("odom_goal_x", odom_goal_x, 2.0);
         nh.param<double>("odom_goal_y", odom_goal_y, 2.0);
 
         wall_found = false;
-        side = 1;
+        side = 1; // 1 sağ duvar, -1 sol duvar takibi
 
         odom_x = 0.0;
         odom_y = 0.0;
         odom_yaw = 0.0;
-
     }
 
     void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg_p) {
@@ -48,18 +47,18 @@ public:
     }
 
     void odomCallback(const nav_msgs::Odometry::ConstPtr& odom_msg) {
-      odom_x = odom_msg->pose.pose.position.x;
-      odom_y = odom_msg->pose.pose.position.y;
+        odom_x = odom_msg->pose.pose.position.x;
+        odom_y = odom_msg->pose.pose.position.y;
 
-      tf::Quaternion q(
-          odom_msg->pose.pose.orientation.x,
-          odom_msg->pose.pose.orientation.y,
-          odom_msg->pose.pose.orientation.z,
-          odom_msg->pose.pose.orientation.w);
-      tf::Matrix3x3 m(q);
-      double roll, pitch, yaw;
-      m.getRPY(roll, pitch, yaw);
-      odom_yaw = yaw;
+        tf::Quaternion q(
+            odom_msg->pose.pose.orientation.x,
+            odom_msg->pose.pose.orientation.y,
+            odom_msg->pose.pose.orientation.z,
+            odom_msg->pose.pose.orientation.w);
+        tf::Matrix3x3 m(q);
+        double roll, pitch, yaw;
+        m.getRPY(roll, pitch, yaw);
+        odom_yaw = yaw;
     }
 
     void findNearestWall() {
@@ -75,15 +74,12 @@ public:
 
         if (min_index != -1) {
             double angle = scan_msg.angle_min + min_index * scan_msg.angle_increment;
-            ROS_INFO("En yakın duvar mesafesi: %f, Açı: %f", min_distance, angle);
-
-            double angle_error = angle;
-            turnToAngle(angle_error);
+            ROS_INFO("Nearest wall distance: %f, Angle: %f", min_distance, angle);
+            turnToAngle(angle);
             ros::Duration(1.0).sleep();
-
             wall_found = true;
         } else {
-            ROS_WARN("Çevrede duvar bulunamadı!");
+            ROS_WARN("No wall found!");
             stopRobot();
         }
     }
@@ -91,27 +87,20 @@ public:
     void followWall() {
         double front_distance = getDistanceAtAngle(0.0);
         double side_distance = getDistanceAtAngle(side * M_PI / 2.0);
-        double angle_to_front_wall = getAngleToWall(0.0);
-        double angle_to_side_wall = getAngleToWall(side * M_PI / 2.0);
 
-        ROS_INFO("Ön mesafe: %f, Yan mesafe: %f", front_distance, side_distance);
-
-        if (front_distance < corner_threshold && fabs(angle_to_front_wall - odom_yaw) > M_PI / 3.0) {
-            ROS_INFO("90 derece köşe algılandı. Sağa dönülüyor.");
-            turnRobot(side * M_PI / 2.0);
-            ros::Duration(1.0).sleep();
+        if (front_distance < corner_threshold) {
+            ROS_INFO("90-degree corner detected, turning to follow wall");
+            turnRobot(-side * M_PI / 2.0);
             return;
         }
 
-        if (front_distance > corner_threshold && fabs(angle_to_front_wall- odom_yaw) > M_PI / 3.0) {
-            ROS_INFO("270 derece köşe algılandı. Sola dönülüyor.");
-            turnRobot(side * -M_PI / 2.0);
-            ros::Duration(1.0).sleep();
+        if (side_distance > d + r) {
+            ROS_INFO("270-degree corner detected, turning to approach wall");
+            turnRobot(side * M_PI / 2.0);
             return;
         }
 
         double error = side_distance - d;
-
         double angular_z = Kp * error;
         angular_z = std::max(std::min(angular_z, rotate_vel), -rotate_vel);
 
@@ -122,58 +111,43 @@ public:
 
     double getDistanceAtAngle(double angle) {
         int index = angleToIndex(angle);
-        if (index >= 0 && index < scan_msg.ranges.size()) {
+        if (index >= 0 && index < scan_msg.ranges.size())
             return scan_msg.ranges[index];
-        }
         return scan_msg.range_max;
     }
 
-    double getAngleToWall(double angle) {
-      int index = angleToIndex(angle);
-      if (index >= 0 && index < scan_msg.ranges.size()) {
-          return scan_msg.angle_min + index * scan_msg.angle_increment;
-      }
-      return 0.0;
-    }
-
     int angleToIndex(double angle) {
-        double relative_angle = angle;
-        int index = (int)((relative_angle - scan_msg.angle_min) / scan_msg.angle_increment);
-        return index;
+        int index = (int)((angle - scan_msg.angle_min) / scan_msg.angle_increment);
+        return std::min(std::max(index, 0), (int)scan_msg.ranges.size() - 1);
     }
 
     void turnRobot(double angle) {
-      double target_yaw = odom_yaw + angle;
-
-      turnToAngle(target_yaw);
+        double target_yaw = odom_yaw + angle;
+        turnToAngle(target_yaw);
+        ros::Duration(0.5).sleep();
     }
 
+    void turnToAngle(double target_yaw) {
+        target_yaw = atan2(sin(target_yaw), cos(target_yaw));
+        double error = target_yaw - odom_yaw;
+        error = atan2(sin(error), cos(error));
 
-    void turnToAngle(double target_yaw){
-      target_yaw = atan2(sin(target_yaw), cos(target_yaw));
+        ros::Rate rate(20);
+        while (fabs(error) > 0.02) {
+            double direction = error > 0 ? 1.0 : -1.0;
+            cmd_vel_msg.angular.z = direction * rotate_vel;
+            cmd_vel_msg.linear.x = 0.0;
+            cmd_vel_pub.publish(cmd_vel_msg);
+            ros::spinOnce();
+            rate.sleep();
 
-      double error = target_yaw - odom_yaw;
-
-      error = atan2(sin(error), cos(error));
-
-      while (fabs(error) > 0.02) {
-          double direction = error > 0 ? 1.0 : -1.0;
-          cmd_vel_msg.angular.z = direction * rotate_vel;
-          cmd_vel_msg.linear.x = 0.0;
-          cmd_vel_pub.publish(cmd_vel_msg);
-
-          ros::spinOnce();
-          ros::Duration(0.05).sleep();
-
-          error = target_yaw - odom_yaw;
-          error = atan2(sin(error), cos(error));
-      }
-
-      stopRobot();
+            error = atan2(sin(target_yaw - odom_yaw), cos(target_yaw - odom_yaw));
+        }
+        stopRobot();
     }
 
     bool goalReached() {
-        return (fabs(odom_x) <= odom_goal_x && fabs(odom_y) <= odom_goal_y);
+        return fabs(odom_x) <= odom_goal_x && fabs(odom_y) <= odom_goal_y;
     }
 
     void stopRobot() {
@@ -190,21 +164,11 @@ private:
     geometry_msgs::Twist cmd_vel_msg;
     sensor_msgs::LaserScan scan_msg;
 
-    double d;
-    double r;
-    double straight_vel;
-    double rotate_vel;
-    double corner_threshold;
-    double odom_goal_x, odom_goal_y;
-
+    double d, r, straight_vel, rotate_vel, corner_threshold, odom_goal_x, odom_goal_y;
     bool wall_found;
     int side;
-
-    double odom_x;
-    double odom_y;
-    double odom_yaw;
-
-    double Kp = 0.5;
+    double odom_x, odom_y, odom_yaw;
+    const double Kp = 1.0;
 };
 
 int main(int argc, char** argv) {
